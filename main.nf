@@ -379,7 +379,6 @@ process makeBWAIndex {
     """
 }
 
-
 /*
  * PREPROCESSING - Index Fasta file if not specified on CLI 
  */
@@ -503,7 +502,7 @@ process adapter_removal {
     set val(name), file(reads) from ( params.complexity_filter ? ch_clipped_reads_complexity_filtered : ch_read_files_clip )
 
     output:
-    file "*.combined*.gz" into (ch_clipped_reads, ch_clipped_reads_for_fastqc,ch_clipped_reads_circularmapper,ch_clipped_reads_bwamem)
+    file "*.combined*.gz" into (ch_clipped_reads,ch_clipped_reads_for_fastqc,ch_clipped_reads_circularmapper,ch_clipped_reads_bwamem)
     file "*.settings" into ch_adapterremoval_logs
 
     script:
@@ -560,11 +559,12 @@ process bwa {
 
     input:
     file(reads) from ch_clipped_reads
-    file "*" from ch_bwa_index
-    file fasta from ch_fasta_for_bwa_mapping
+    //file "*" from ch_bwa_index.collect()
+    file "*" from Channel.fromPath("${params.bwa_index}.*").collect()
+    file fasta from ch_fasta_for_bwa_mapping.collect()
 
     output:
-    file "*.sorted.bam" into ch_mapped_reads_idxstats,ch_mapped_reads_filter,ch_mapped_reads_preseq, ch_mapped_reads_damageprofiler
+    file "*.sorted.bam" into (ch_mapped_reads_idxstats,ch_mapped_reads_filter,ch_mapped_reads_preseq,ch_mapped_reads_damageprofiler)
     file "*.bai" 
     
 
@@ -610,8 +610,8 @@ process circularmapper{
 
     input:
     file reads from ch_clipped_reads_circularmapper
-    file fasta from ch_fasta_for_circularmapper
-    file "*" from ch_circularmapper_indices
+    file fasta from ch_fasta_for_circularmapper.collect()
+    file "*" from ch_circularmapper_indices.collect()
 
     output:
     file "*.sorted.bam" into ch_mapped_reads_idxstats_cm,ch_mapped_reads_filter_cm,ch_mapped_reads_preseq_cm, ch_mapped_reads_damageprofiler_cm
@@ -637,8 +637,8 @@ process bwamem {
 
     input:
     file(reads) from ch_clipped_reads_bwamem
-    file "*" from ch_bwa_index_bwamem
-    file fasta from ch_fasta_for_bwamem_mapping
+    file "*" from ch_bwa_index_bwamem.collect()
+    file fasta from ch_fasta_for_bwamem_mapping.collect()
 
     output:
     file "*.sorted.bam" into ch_bwamem_mapped_reads_idxstats,ch_bwamem_mapped_reads_filter,ch_bwamem_mapped_reads_preseq, ch_bwamem_mapped_reads_damageprofiler
@@ -745,14 +745,14 @@ process dedup{
     if(params.singleEnd) {
     """
     dedup -i $bam $treat_merged -o . -u 
-    mv *.log dedup.log
+    mv *.log "$prefix".dedup.log
     samtools sort -@ ${task.cpus} "$prefix"_rmdup.bam -o "$prefix".sorted.bam
     samtools index -@ ${task.cpus} "$prefix".sorted.bam
     """  
     } else {
     """
     dedup -i $bam $treat_merged -o . -u 
-    mv *.log dedup.log
+    mv *.log "$prefix".dedup.log
     samtools sort -@ ${task.cpus} "$prefix"_rmdup.bam -o "$prefix".sorted.bam
     samtools index -@ ${task.cpus} "$prefix".sorted.bam
     """  
@@ -802,14 +802,14 @@ process damageprofiler {
 
     input:
     file bam from ch_mapped_reads_damageprofiler.mix(ch_mapped_reads_damageprofiler_cm,ch_bwamem_mapped_reads_damageprofiler)
-    file fasta from ch_fasta_for_damageprofiler
+    file fasta from ch_fasta_for_damageprofiler.collect()
 
     output:
     file "*" into ch_damageprofiler_results
 
     script:
     """
-    damageprofiler -i $bam -r $fasta -l ${params.damageprofiler_length} -t ${params.damageprofiler_threshold} -o . 
+    damageprofiler -i $bam -r $fasta -l ${params.damageprofiler_length} -t ${params.damageprofiler_threshold} -o ${bam.baseName}
     """
 }
 
@@ -826,7 +826,7 @@ process qualimap {
 
     input:
     file bam from ch_bam_filtered_qualimap
-    file fasta from ch_fasta_for_qualimap
+    file fasta from ch_fasta_for_qualimap.collect()
 
     output:
     file "*" into ch_qualimap_results
